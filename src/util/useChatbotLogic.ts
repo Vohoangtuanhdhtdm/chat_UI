@@ -77,7 +77,7 @@ export const useChatbotLogic = () => {
     setIsAiThinking(true);
 
     try {
-      const response = await apiClient.post("/chat", {
+      const response = await apiClient.post("/query", {
         question: currentInput,
       });
       const data = response.data as { answer?: string };
