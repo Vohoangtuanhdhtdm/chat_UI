@@ -6,6 +6,7 @@ import {
   type FormEvent,
 } from "react";
 import type { FileStatus, Message } from "../types/chat";
+import apiClient from "../api/axiosConfig";
 
 export const useChatbotLogic = () => {
   const [messages, setMessages] = useState<Message[]>([]);
@@ -21,21 +22,35 @@ export const useChatbotLogic = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  const mockFileUploadAndProcess = (file: File) => {
+  const uploadAndProcessFile = async (file: File) => {
     setFileStatus("uploading");
-    setTimeout(() => {
+    const formData = new FormData();
+    formData.append("file", file);
+
+    try {
       setFileStatus("processing");
-      setTimeout(() => {
-        setFileStatus("ready");
-        setMessages([
-          {
-            id: "ai-intro",
-            text: `Tôi đã đọc xong file "${file.name}". Bạn muốn hỏi gì về nội dung trong này?`,
-            sender: "ai",
-          },
-        ]);
-      }, 2500);
-    }, 1500);
+      const response = await apiClient.post("/query-file", formData, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+
+      const data = response.data as { answer?: string };
+      const introMessage =
+        data.answer ||
+        `Tôi đã đọc xong file "${file.name}". Bạn muốn hỏi gì về nội dung trong này?`;
+      setMessages([{ id: "ai-intro", text: introMessage, sender: "ai" }]);
+      setFileStatus("ready");
+    } catch (error) {
+      console.error("Error uploading or processing file:", error);
+      setMessages([
+        {
+          id: "error-upload",
+          text: "Rất tiếc, đã có lỗi xảy ra khi tải và xử lý file của bạn. Vui lòng thử lại.",
+          sender: "ai",
+        },
+      ]);
+      setFileStatus("error");
+      setUploadedFile(null);
+    }
   };
 
   const handleFileChange = (e: ChangeEvent<HTMLInputElement>) => {
@@ -43,11 +58,11 @@ export const useChatbotLogic = () => {
     if (file) {
       setUploadedFile(file);
       setMessages([]);
-      mockFileUploadAndProcess(file);
+      uploadAndProcessFile(file);
     }
   };
 
-  const handleSendMessage = (e: FormEvent) => {
+  const handleSendMessage = async (e: FormEvent) => {
     e.preventDefault();
     if (!input.trim() || fileStatus !== "ready" || isAiThinking) return;
 
@@ -57,18 +72,32 @@ export const useChatbotLogic = () => {
       sender: "user",
     };
     setMessages((prev) => [...prev, userMessage]);
+    const currentInput = input;
     setInput("");
     setIsAiThinking(true);
 
-    setTimeout(() => {
+    try {
+      const response = await apiClient.post("/chat", {
+        question: currentInput,
+      });
+      const data = response.data as { answer?: string };
       const aiResponse: Message = {
         id: (Date.now() + 1).toString(),
-        text: `Dựa trên tài liệu bạn cung cấp, tôi tìm thấy thông tin liên quan đến "${input}". [Đây là câu trả lời được tạo ra từ nội dung file]`,
+        text: data.answer || "Tôi không tìm thấy câu trả lời phù hợp.",
         sender: "ai",
       };
       setMessages((prev) => [...prev, aiResponse]);
+    } catch (error) {
+      console.error("Error sending message:", error);
+      const errorResponse: Message = {
+        id: (Date.now() + 1).toString(),
+        text: "Xin lỗi, đã có lỗi xảy ra. Tôi không thể xử lý yêu cầu của bạn lúc này.",
+        sender: "ai",
+      };
+      setMessages((prev) => [...prev, errorResponse]);
+    } finally {
       setIsAiThinking(false);
-    }, 2000);
+    }
   };
 
   return {
